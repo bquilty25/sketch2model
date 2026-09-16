@@ -1,0 +1,142 @@
+---
+title: "sketch2model: converting hand-drawn compartmental models and mathematical equations into validated simulation code using large language model agents"
+author:
+  - name: Billy Quilty
+    affiliations:
+      - name: Charité -- Universitätsmedizin Berlin
+      - name: London School of Hygiene & Tropical Medicine
+    email: billy.quilty@charite.de
+    orcid: 0000-0002-6299-1713
+    equal-contributor: true
+  - name: David Hodgson
+    affiliations:
+      - name: Charité -- Universitätsmedizin Berlin
+    equal-contributor: true
+format:
+  html:
+    toc: true
+    number-sections: true
+    embed-resources: true
+  pdf:
+    documentclass: article
+    papersize: a4
+    geometry:
+      - margin=2.5cm
+bibliography: references.bib
+date: today
+lang: en-GB
+---
+
+## Abstract
+
+Mathematical and compartmental models underpin quantitative research across infectious disease epidemiology, ecology, pharmacokinetics, and demography. Translating a conceptual model, whether sketched on paper or expressed as differential equations, into verified, executable code remains a manual, error-prone bottleneck that impedes reproducibility and slows the modelling cycle. We present sketch2model, an open-source agent-based framework that uses the multimodal vision and code-generation capabilities of large language models (LLMs) to convert hand-drawn compartmental diagrams, mathematical equations, or both into validated simulation and inference code. The agent operates through an eight-stage pipeline: project setup, input extraction, model critique, implementation in odin/odin2 or Stan, observation model design, validation, and traceability. Each stage is governed by a self-contained skill document that constrains the agent's behaviour, enforces mass-balance audits, and prevents silent modification of the user's model. We describe the design of the system, its structured prompt architecture, and how the pipeline preserves a complete audit trail from source sketch to tested code. The framework is domain-agnostic in principle, though we motivate and illustrate it in the context of infectious disease transmission modelling.
+
+## Introduction
+
+Compartmental models have served as a foundational tool in infectious disease epidemiology since the work of Kermack and McKendrick in the 1920s. The typical workflow begins with a researcher sketching a flow diagram on paper or a whiteboard, annotating it with rate parameters and compartment labels, and then translating it by hand into simulation code. This translation step is where errors most commonly arise: mismatched flow directions, omitted transitions, inconsistent units, and violated mass-balance constraints can all be introduced silently during manual coding. When the same model must also be fitted to data, additional complexity arises from the observation model, likelihood specification, and prior elicitation. The result is a fragile chain of reasoning from conceptual model to executable code, one that is difficult to audit and tedious to reproduce.
+
+Recent advances in large language models have demonstrated remarkable capability in code generation, mathematical reasoning, and multimodal understanding, including the interpretation of images. The Paper2Agent framework demonstrated that research papers can be converted into interactive AI agents that expose their methods as executable tools, achieving high accuracy on benchmark tasks while reducing technical barriers to method reuse [@miao2026paper2agent]. These developments raise a practical question: can an LLM agent reliably convert a hand-drawn compartmental diagram or a set of differential equations into tested, runnable code, while maintaining a verifiable link between the source specification and the generated implementation?
+
+We present sketch2model, a framework that addresses this question. Rather than treating the LLM as a general-purpose code generator, sketch2model structures the conversion as a multi-stage pipeline in which each stage is governed by a self-contained skill document. These skill documents constrain the agent's behaviour at each step: they mandate confidence ratings for extracted features, require user confirmation before resolving ambiguities, enforce mass-balance audits before code generation, and prohibit the addition of model mechanisms not present in the source input. The framework supports two input modalities (diagrammatic sketches and mathematical equations), two implementation targets (odin/odin2 with monty, and Stan with cmdstanr), and produces a complete traceability record linking every decision to the source material.
+
+While we develop and illustrate sketch2model in the context of infectious disease transmission models, the underlying approach, extracting compartments, flows, and rates from a visual or mathematical specification and translating them into ordinary differential equation code, applies to any domain that uses compartmental or dynamical systems models.
+
+## Methods
+
+### System architecture
+
+sketch2model is implemented as an agent definition for Claude Code, with the core logic distributed across a main agent prompt and eight self-contained skill documents written in Markdown. The agent prompt defines the persona, workflow sequence, and output constraints. Each skill document specifies the instructions, required outputs, and behavioural constraints for one pipeline stage. This separation allows the agent to load only the relevant skill at each stage, keeping context focused and reducing the risk of conflicting instructions.
+
+The eight pipeline stages are:
+
+1. **Project setup** (`r-compartment-project-setup`): inspect or establish the R project structure, package dependencies, and directory layout.
+2. **Sketch specification** (`compartment-sketch-specification`): extract compartments, transitions, and rates from a photographed diagram using LLM vision.
+3. **Equation specification** (`equation-specification`): extract the model from mathematical equations supplied as LaTeX, handwritten formulae, or typed text.
+4. **Model critique** (`compartment-model-critique`): audit the extracted specification for blocking defects, important modelling concerns, and optional extensions.
+5. **Implementation** (`odin-monty-implementation`): translate the approved specification into odin/odin2 or Stan code.
+6. **Observation model design** (`observation-model-design`): design the likelihood and observation layer when data and an inference objective are provided.
+7. **Validation** (`compartment-model-validation`): verify compilation, simulation, mass conservation, and diagnostic scenarios.
+8. **Traceability** (`model-traceability`): save the audit trail linking source input, transcription, decisions, code, and validation results.
+
+When both a sketch and equations are supplied, stages 2 and 3 are both executed and their outputs cross-referenced, with discrepancies flagged for user resolution.
+
+![Overview of the sketch2model pipeline. User-supplied inputs (hand-drawn sketches, mathematical equations, or both) enter a structured eight-stage pipeline governed by self-contained skill documents. The agent assigns confidence ratings to extracted elements and requires user confirmation at key decision points (indicated by dashed arrows). Two implementation targets are supported: odin/odin2 with monty for particle-filtering workflows, and Stan with cmdstanr for Hamiltonian Monte Carlo. All stages feed into a traceability record that links the source input to the final validated code.](pipeline_flowchart.png){#fig-pipeline width="90%" fig-align="center"}
+
+### Input extraction
+
+The agent uses the LLM's native multimodal vision capabilities to interpret hand-drawn diagrams and handwritten equations. No external optical character recognition library or computer-vision pipeline is used. This design choice reflects a deliberate trade-off: LLM vision operates on the semantic content of the image rather than performing character-level recognition, which makes it better suited to interpreting the conventions of compartmental diagrams (boxes, arrows, rate labels, annotations) than a generic OCR system would be.
+
+For each extracted element, whether a compartment label, transition arrow, rate expression, or equation term, the agent assigns a confidence rating: high (unambiguous), medium (legible but requiring contextual interpretation), or low (obscured or ambiguous). Low-confidence items are never implemented without user confirmation. Medium-confidence assumptions are presented for review before proceeding.
+
+The extracted model is represented as a structured transition table:
+
+| Source | Destination | Flow expression | Parameters | Confidence and notes |
+| --- | --- | --- | --- | --- |
+
+This tabular representation serves as the contract between the extraction and implementation stages. Every subsequent stage, including critique, coding, and validation, operates on this table rather than on the raw image or equation text.
+
+### Behavioural constraints
+
+A central design principle of sketch2model is that the agent must not silently alter the user's model. The skill documents enforce this through several mechanisms:
+
+- The agent may not add compartments, transitions, or observation mechanisms absent from the source input unless the user explicitly approves them.
+- Ambiguities in notation, arrow direction, denominators, or time units must be flagged and resolved by the user before implementation.
+- The model critique stage separates blocking defects (which must be resolved) from optional extensions (which are reported but not implemented without consent).
+- Mass-balance audits verify that every flow appears exactly once as an outflow and once as an inflow, except for declared external sources and sinks.
+
+These constraints are designed to preserve the scientific intent of the original model while still allowing the agent to identify potential issues. The agent functions as a structured translator, not as an autonomous modelling advisor.
+
+### Implementation targets
+
+sketch2model supports two implementation targets:
+
+**odin/odin2 with monty.** The default path produces an odin or odin2 model-definition file, a simulation entry point with representative parameters, and a generated Mermaid or Graphviz diagram. When data and an approved observation model are provided, the agent generates a separate monty likelihood and inference script. The agent inspects the installed package versions before writing code and uses the exact API provided by those versions.
+
+**Stan with cmdstanr.** When the user requests Stan, or when the model requires features native to Stan such as hierarchical priors or custom probability distributions, the agent produces a `.stan` file with the ODE system encoded in the functions block, alongside a thin R fitting script using cmdstanr. The Stan model uses an appropriate ODE solver interface based on expected stiffness.
+
+In both cases, all paths use `here::here()`, model code is kept separate from analysis scripts, and the parameter interface is documented.
+
+### Validation
+
+The validation stage runs a suite of structural and numerical checks appropriate to the implementation target. For odin models, these include compilation, a short simulation, non-negativity of states, mass conservation for closed populations, plausible baseline behaviour, zero-transmission scenarios, and extreme-parameter stress tests. For Stan models, the checks include compilation via cmdstanr, a short diagnostic sampling run, non-negative compartment values in generated quantities, mass conservation in the ODE solution, and finite posterior summaries with acceptable R-hat values.
+
+### Traceability
+
+The traceability stage preserves a machine-readable record of the entire conversion: the source image filename or checksum, extraction confidence ratings, unresolved ambiguities, user decisions, the transition table, the model time unit, the generated-diagram path, the parameter interface, and validation outcomes. This record is saved alongside the model code using relative paths, creating a self-contained audit trail.
+
+### Portability across agent harnesses
+
+The agent definition and skill documents are plain Markdown files with YAML frontmatter. While the primary deployment target is Claude Code, the same files can be adapted for use with GitHub Copilot (by copying skills to `.github/skills/`) or any other LLM agent harness that supports multimodal input and structured prompting. The only hard requirement is that the host model's own vision capabilities are used for image interpretation.
+
+## Results
+
+We describe the current state of the sketch2model framework and its intended use rather than presenting a formal evaluation. The system is operational as an open-source Claude Code agent and has been tested informally on a range of infectious disease compartmental models of varying complexity.
+
+The pipeline successfully processes standard compartmental diagrams, including SIR, SEIR, and multi-strain models, extracting compartments and transitions with high confidence when diagrams are clearly drawn. The confidence-rating mechanism identifies ambiguous elements, such as unclear arrow directions or partially legible rate labels, and routes them to the user for clarification rather than guessing. The transition-table representation provides a clear intermediate format that makes it straightforward to verify the extraction before code generation begins.
+
+The model critique stage has proven useful for catching common errors that would otherwise propagate silently into code: missing death flows in what should be an open population, inconsistent time units between rate parameters, and transmission terms with incorrect dimensions. By separating blocking defects from optional extensions, the critique avoids overwhelming the user with suggestions while still flagging issues that would produce incorrect dynamics.
+
+The dual implementation targets, odin/odin2 and Stan, cover the two most common inference workflows in the infectious disease modelling community. The odin path is well suited to models that will be fitted using particle filtering via monty, while the Stan path accommodates models requiring Hamiltonian Monte Carlo, hierarchical structure, or custom probability distributions.
+
+The traceability record addresses a persistent gap in modelling practice. Published models often lack a clear link between the conceptual diagram in a paper and the code that was actually run. By preserving the extraction, decisions, and validation results alongside the code, sketch2model makes it possible for a reviewer or collaborator to trace every implemented transition back to the source sketch or equation.
+
+Although developed for infectious disease models, the pipeline stages, extracting compartments and flows, auditing mass balance, translating to ODE code, and validating structural invariants, are not specific to any particular domain. The same approach applies to pharmacokinetic models, ecological population models, demographic projection models, or any system expressed as a compartmental flow diagram or a set of ordinary differential equations.
+
+## Discussion
+
+sketch2model demonstrates that structured prompt engineering, combined with LLM vision and code-generation capabilities, can automate a substantial portion of the model-translation workflow while maintaining scientific rigour through explicit constraints and user oversight. The framework addresses a real bottleneck: the manual, error-prone translation from conceptual model to executable code that every computational modeller performs repeatedly.
+
+The structured-skill architecture represents a different approach from general-purpose code-generation agents. By decomposing the task into constrained stages, each governed by a dedicated skill document, the system reduces the risk of the LLM hallucinating model components, silently resolving ambiguities, or producing code that diverges from the user's intent. The confidence-rating system and mandatory user confirmation for low-confidence items provide an additional layer of safety. This design draws on the broader insight from Paper2Agent [@miao2026paper2agent] that converting research artefacts into agent-native representations, with validated tools and structured workflows, produces more reliable outputs than unconstrained code generation from a general-purpose agent.
+
+Several limitations should be acknowledged. First, the system has not been formally evaluated against a benchmark suite of models with known ground-truth implementations. Such an evaluation would be valuable for quantifying extraction accuracy, implementation correctness, and the frequency with which user intervention is required. Second, the quality of the output depends on the quality of the input: a poorly drawn or ambiguous sketch will require more user clarification, and a sketch that omits important flows will produce a model that omits those flows. The system is transparent about what it cannot resolve, but it cannot compensate for incomplete specifications. Third, while the framework supports Stan as an implementation target, the odin path has received more development attention, and the Stan validation suite is less mature.
+
+The decision to use LLM vision rather than a dedicated OCR pipeline warrants brief comment. Compartmental diagrams are not standard text: they consist of labelled shapes, directed arrows, and spatial relationships that carry semantic meaning. LLM vision models interpret these elements as a structured system rather than as characters to be recognised, which makes them better suited to this task than OCR followed by post-processing. The trade-off is that vision model performance varies with image quality, handwriting clarity, and diagram complexity, but the confidence-rating mechanism mitigates this by surfacing uncertain extractions.
+
+Looking forward, there are several directions for extension. Automated round-trip testing, in which the generated diagram is compared programmatically with the source sketch, would strengthen the validation stage. Support for stochastic models, spatial models, and agent-based models would broaden applicability. Integration with version control could enable tracking of model revisions across iterations of the sketch-to-code cycle. Formal benchmarking against a corpus of published models with reference implementations would establish the reliability of the system under controlled conditions.
+
+In summary, sketch2model provides a structured, transparent, and auditable pathway from conceptual model to tested code. By constraining the LLM agent at each stage and preserving a complete traceability record, the framework turns a common source of modelling error into a reproducible, verifiable process.
+
+## References
+
+::: {#refs}
+:::
