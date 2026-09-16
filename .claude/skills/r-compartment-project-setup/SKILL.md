@@ -33,7 +33,8 @@ Use R as the implementation language. Use:
 - `here` for all project paths;
 - `qs` for processed or computationally expensive R objects;
 - `odin` or `odin2`, according to the installed version and project convention;
-- `monty` only for approved inference workflows;
+- `monty` only for approved inference workflows with odin models;
+- `cmdstanr` and CmdStan for Stan-based models, when the user requests Stan output;
 - `testthat` for focused automated tests where it is available.
 
 Inspect existing dependency files before adding packages. For a new project, use `renv` when it is installed or when the user requests reproducible dependency locking. Record all direct dependencies in the project's chosen dependency manifest and avoid attaching packages unnecessarily: prefer qualified calls such as `dplyr::mutate()` in reusable functions.
@@ -48,4 +49,4 @@ Persist processed data with `qs::qsave()` under `data/processed/`, using paths m
 
 ## Initial checks
 
-Before modelling, report whether R, the selected odin package, `tidyverse`, `here`, `qs`, and any requested inference dependencies are installed. Do not install missing packages without user approval. Run the smallest available project setup or test command after changing project configuration.
+Before modelling, report whether R, the selected odin package (or `cmdstanr` and CmdStan for Stan models), `tidyverse`, `here`, `qs`, and any requested inference dependencies are installed. Do not install missing packages without user approval. Run the smallest available project setup or test command after changing project configuration.
