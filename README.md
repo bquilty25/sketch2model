@@ -1,10 +1,10 @@
 # sketch2model
 
-Converts hand-drawn compartmental model sketches or mathematical equations into validated, reproducible simulation and inference code using `odin`/`odin2` with `monty`, or Stan with `cmdstanr`. The approach applies to any system describable by ordinary differential equations, difference equations, or compartmental flows, with infectious disease transmission models as the primary application domain.
+An AI agent that converts hand-drawn compartmental model sketches or mathematical equations into validated, reproducible simulation and inference code. The agent reads images through LLM vision, critiques model specifications, writes and tests code, and interacts with the user to resolve ambiguities, all within a single conversational session. It produces `odin`/`odin2` with `monty`, or Stan with `cmdstanr` code. The approach applies to any system describable by ordinary differential equations, difference equations, or compartmental flows, with infectious disease transmission models as the primary application domain.
 
 ## How it works
 
-An AI agent orchestrates an eight-step pipeline:
+The agent autonomously sequences through an eight-stage workflow, loading the relevant skill at each stage and pausing only to ask the user for clarification or approval at defined decision points:
 
 1. **Project setup** -- establish or inspect the R project structure
 2. **Sketch specification** -- extract compartments, transitions, and rates from a photographed diagram into a confidence-rated transition table using LLM vision (no external OCR)
